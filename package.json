@@ -1,0 +1,10 @@
+{
+  "name": "ethonline-2023-ape-blendr-contracts",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "hardhat": "^2.18.0"
+  }
+}
