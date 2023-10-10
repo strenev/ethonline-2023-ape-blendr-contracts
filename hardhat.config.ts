@@ -24,7 +24,6 @@ const config: HardhatUserConfig = {
     hardhat: {
       forking: {
         url: `https://goerli.infura.io/v3/${process.env.INFURA_API_KEY}`,
-        blockNumber: 9842330
       },
       accounts: {
         count: 150,

@@ -169,29 +169,34 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
         uint256 totalApeCoinBalance = apeStakeInfo.deposited + apeStakeInfo.unclaimed;
 
         uint256 awardForCurrentDraw = totalApeCoinBalance > totalSupply ? (totalApeCoinBalance - totalSupply) : 0;
-        uint256 requestId = requestRandomWords();
+        if (awardForCurrentDraw > 0) {
+            uint256 requestId = requestRandomWords();
 
-        apeDraws[requestId].apeCoinAward = awardForCurrentDraw;
+            apeDraws[requestId].apeCoinAward = awardForCurrentDraw;
 
-        if (awardForCurrentDraw >= 1 * (APE_COIN_PRECISION)) {
-            IApeCoinStaking(apeCoinStaking).claimSelfApeCoin();
+            if (awardForCurrentDraw >= 1 * (APE_COIN_PRECISION)) {
+                IApeCoinStaking(apeCoinStaking).claimSelfApeCoin();
 
-            IERC20(apeCoin).approve(apeCoinStaking, awardForCurrentDraw);
-            IApeCoinStaking(apeCoinStaking).depositSelfApeCoin(awardForCurrentDraw);
+                IERC20(apeCoin).approve(apeCoinStaking, awardForCurrentDraw);
+                IApeCoinStaking(apeCoinStaking).depositSelfApeCoin(awardForCurrentDraw);
+            }
+
+            if (awardForCurrentDraw < 1 * (APE_COIN_PRECISION)) {
+                IApeCoinStaking(apeCoinStaking).claimSelfApeCoin();
+
+                IApeCoinStaking(apeCoinStaking).withdrawApeCoin(
+                    (1 * (APE_COIN_PRECISION) - awardForCurrentDraw), address(this)
+                );
+
+                IERC20(apeCoin).approve(apeCoinStaking, 1 * (APE_COIN_PRECISION));
+                IApeCoinStaking(apeCoinStaking).depositSelfApeCoin(1 * (APE_COIN_PRECISION));
+            }
+
+            emit AwardingStarted(requestId, awardForCurrentDraw);
+        } else {
+            _finalizeEpoch();
+            emit NoAwardForCurrentEpoch();
         }
-
-        if (awardForCurrentDraw < 1 * (APE_COIN_PRECISION)) {
-            IApeCoinStaking(apeCoinStaking).claimSelfApeCoin();
-
-            IApeCoinStaking(apeCoinStaking).withdrawApeCoin(
-                (1 * (APE_COIN_PRECISION) - awardForCurrentDraw), address(this)
-            );
-
-            IERC20(apeCoin).approve(apeCoinStaking, 1 * (APE_COIN_PRECISION));
-            IApeCoinStaking(apeCoinStaking).depositSelfApeCoin(1 * (APE_COIN_PRECISION));
-        }
-
-        emit AwardingStarted(requestId, awardForCurrentDraw);
     }
 
     function requestRandomWords() internal returns (uint256 _userRequestId) {
@@ -222,6 +227,7 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
     event EpochEnded(uint256 newEpochStartedAt);
     event AwardingStarted(uint256 requestId, uint256 awardForDraw);
     event AwardingFinished(uint256 requestId, uint256 awardForDraw, address winner);
+    event NoAwardForCurrentEpoch();
 
     error CurrentEpochHasEnded();
     error CurrentEpochHasNotEnded();
