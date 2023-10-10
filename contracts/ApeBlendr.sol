@@ -204,8 +204,6 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
     }
 
     function _update(address from, address to, uint256 amount) internal virtual override {
-        super._update(from, to, amount);
-
         if (from != address(0)) {
             uint256 fromBalance = balanceOf(from) - amount;
             sortitionSumTrees.set(TREE_KEY, fromBalance, bytes32(uint256(uint160(from))));
@@ -215,6 +213,8 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
             uint256 toBalance = balanceOf(to) + amount;
             sortitionSumTrees.set(TREE_KEY, toBalance, bytes32(uint256(uint160(to))));
         }
+
+        super._update(from, to, amount);
     }
 
     event ApeBlendrEntered(address player, uint256 amount);

@@ -2,126 +2,179 @@ import {
   time,
   loadFixture,
 } from "@nomicfoundation/hardhat-toolbox/network-helpers";
-import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { expect } from "chai";
 import { ethers } from "hardhat";
 
-describe("Lock", function () {
-  // We define a fixture to reuse the same setup in every test.
-  // We use loadFixture to run this setup once, snapshot that state,
-  // and reset Hardhat Network to that snapshot in every test.
-  async function deployOneYearLockFixture() {
-    const ONE_YEAR_IN_SECS = 365 * 24 * 60 * 60;
-    const ONE_GWEI = 1_000_000_000;
+const SUBSCRIPTION_ID = "0";
+const KEY_HASH = "0x474e34a077df58807dbe9c96d3c009b23b3c6d0cce433e59bbf5b34f823bc56c";
+const CALLBACK_GAS_LIMIT = "2400000";
+const VRF_REQUEST_CONFIRMATIONS = "1";
+const NUM_WORDS = "1";
+const EPOCH_SECONDS = "3600";
+const EPOCH_STARTED_AT = Math.floor(new Date().getTime() / 1000);
+const APE_BLENDR_FEE_BPS = 0;
+const APE_COIN_ADDRESS = "0x328507DC29C95c170B56a1b3A758eB7a9E73455c";
+const APE_COIN_STAKING_ADDRESS = "0x831e0c7A89Dbc52a1911b78ebf4ab905354C96Ce";
 
-    const lockedAmount = ONE_GWEI;
-    const unlockTime = (await time.latest()) + ONE_YEAR_IN_SECS;
+describe("ApeBlendr Tests", () => {
+  const deployedContracts = async () => {
 
-    // Contracts are deployed using the first signer/account by default
-    const [owner, otherAccount] = await ethers.getSigners();
+    const mockVRFCoordinator = await ethers.deployContract(
+      "MockVRFCoordinator"
+    );
+    await mockVRFCoordinator.waitForDeployment();
 
-    const Lock = await ethers.getContractFactory("Lock");
-    const lock = await Lock.deploy(unlockTime, { value: lockedAmount });
+    const apeCoin = await ethers.getContractAt("SimpleERC20", APE_COIN_ADDRESS);
 
-    return { lock, unlockTime, lockedAmount, owner, otherAccount };
-  }
+    const ApeBlendr = await ethers.getContractFactory("ApeBlendr");
+    const apeBlendr = await ApeBlendr.deploy(
+      APE_COIN_ADDRESS,
+      APE_COIN_STAKING_ADDRESS,
+      APE_BLENDR_FEE_BPS,
+      EPOCH_SECONDS,
+      EPOCH_STARTED_AT,
+      SUBSCRIPTION_ID,
+      KEY_HASH,
+      CALLBACK_GAS_LIMIT,
+      VRF_REQUEST_CONFIRMATIONS,
+      NUM_WORDS,
+      mockVRFCoordinator.getAddress()
+    );
+    await apeBlendr.waitForDeployment();
 
-  describe("Deployment", function () {
-    it("Should set the right unlockTime", async function () {
-      const { lock, unlockTime } = await loadFixture(deployOneYearLockFixture);
+    return {
+      apeCoin,
+      apeBlendr,
+      mockVRFCoordinator,
+    };
+  };
 
-      expect(await lock.unlockTime()).to.equal(unlockTime);
-    });
+  it("should successfully deploy ApeBlendr with correct configuration", async () => {
+    const { apeBlendr } = await loadFixture(deployedContracts);
 
-    it("Should set the right owner", async function () {
-      const { lock, owner } = await loadFixture(deployOneYearLockFixture);
+    const apeCoinAddress = await apeBlendr.apeCoin();
+    const apeCoinStaking = await apeBlendr.apeCoinStaking();
+    const apeBlendrFeeBps = await apeBlendr.apeBlendrFeeBps();
+    const epochSeconds = await apeBlendr.epochSeconds();
+    const epochStartedAt = await apeBlendr.epochStartedAt();
 
-      expect(await lock.owner()).to.equal(owner.address);
-    });
-
-    it("Should receive and store the funds to lock", async function () {
-      const { lock, lockedAmount } = await loadFixture(
-        deployOneYearLockFixture
-      );
-
-      expect(await ethers.provider.getBalance(lock.target)).to.equal(
-        lockedAmount
-      );
-    });
-
-    it("Should fail if the unlockTime is not in the future", async function () {
-      // We don't use the fixture here because we want a different deployment
-      const latestTime = await time.latest();
-      const Lock = await ethers.getContractFactory("Lock");
-      await expect(Lock.deploy(latestTime, { value: 1 })).to.be.revertedWith(
-        "Unlock time should be in the future"
-      );
-    });
+    expect(apeCoinAddress).to.equal(APE_COIN_ADDRESS);
+    expect(apeCoinStaking).to.equal(APE_COIN_STAKING_ADDRESS);
+    expect(apeBlendrFeeBps).to.equal(APE_BLENDR_FEE_BPS);
+    expect(epochSeconds).to.equal(EPOCH_SECONDS);
+    expect(epochStartedAt).to.equal(EPOCH_STARTED_AT);
   });
 
-  describe("Withdrawals", function () {
-    describe("Validations", function () {
-      it("Should revert with the right error if called too soon", async function () {
-        const { lock } = await loadFixture(deployOneYearLockFixture);
+  it("should successfully deposit $APE to ApeBlendr contract", async () => {
+    const { apeCoin, apeBlendr } = await loadFixture(deployedContracts);
 
-        await expect(lock.withdraw()).to.be.revertedWith(
-          "You can't withdraw yet"
-        );
-      });
+    const accounts = await ethers.getSigners();
 
-      it("Should revert with the right error if called from another account", async function () {
-        const { lock, unlockTime, otherAccount } = await loadFixture(
-          deployOneYearLockFixture
-        );
+    await apeCoin
+      .connect(accounts[0])
+      .mint(accounts[0].getAddress(), "100000000000000000000000");
+    await apeCoin
+      .connect(accounts[0])
+      .approve(apeBlendr.getAddress(), ethers.MaxUint256);
 
-        // We can increase the time in Hardhat Network
-        await time.increaseTo(unlockTime);
-
-        // We use lock.connect() to send a transaction from another account
-        await expect(lock.connect(otherAccount).withdraw()).to.be.revertedWith(
-          "You aren't the owner"
-        );
-      });
-
-      it("Shouldn't fail if the unlockTime has arrived and the owner calls it", async function () {
-        const { lock, unlockTime } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        // Transactions are sent using the first signer by default
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw()).not.to.be.reverted;
-      });
-    });
-
-    describe("Events", function () {
-      it("Should emit an event on withdrawals", async function () {
-        const { lock, unlockTime, lockedAmount } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw())
-          .to.emit(lock, "Withdrawal")
-          .withArgs(lockedAmount, anyValue); // We accept any value as `when` arg
-      });
-    });
-
-    describe("Transfers", function () {
-      it("Should transfer the funds to the owner", async function () {
-        const { lock, unlockTime, lockedAmount, owner } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw()).to.changeEtherBalances(
-          [owner, lock],
-          [lockedAmount, -lockedAmount]
-        );
-      });
-    });
+    await apeBlendr
+      .connect(accounts[0])
+      .enterApeBlendr("10000000000000000000000");
   });
-});
+
+  it("should successfully withdraw $APE to ApeBlendr contract", async () => {
+    const { apeCoin, apeBlendr } = await loadFixture(deployedContracts);
+
+    const accounts = await ethers.getSigners();
+
+    await apeCoin
+      .connect(accounts[0])
+      .mint(accounts[0].getAddress(), "100000000000000000000000");
+    await apeCoin
+      .connect(accounts[0])
+      .approve(apeBlendr.getAddress(), ethers.MaxUint256);
+
+    await apeBlendr
+      .connect(accounts[0])
+      .enterApeBlendr("10000000000000000000000");
+    await apeBlendr
+      .connect(accounts[0])
+      .exitApeBlendr("10000000000000000000000");
+  });
+
+  it("should not be able to start awarding process when epoch has not ended", async () => {
+    const { apeCoin, apeBlendr } = await loadFixture(deployedContracts);
+    const accounts = await ethers.getSigners();
+
+    for (let i = 0; i < 10; i++) {
+      await apeCoin
+        .connect(accounts[i])
+        .mint(accounts[i].getAddress(), "100000000000000000000000");
+      await apeCoin
+        .connect(accounts[i])
+        .approve(apeBlendr.getAddress(), ethers.MaxUint256);
+
+      await apeBlendr
+        .connect(accounts[i])
+        .enterApeBlendr("10000000000000000000000");
+    }
+
+    await expect(
+      apeBlendr.connect(accounts[11]).startApeCoinAwardingProcess()
+    ).to.be.revertedWithCustomError(apeBlendr, "CurrentEpochHasNotEnded");
+  });
+
+  it("should be able to start awarding process when epoch has ended", async () => {
+    const { apeCoin, apeBlendr } = await loadFixture(deployedContracts);
+    const accounts = await ethers.getSigners();
+
+    for (let i = 0; i < 10; i++) {
+      await apeCoin
+        .connect(accounts[i])
+        .mint(accounts[i].getAddress(), "100000000000000000000000");
+      await apeCoin
+        .connect(accounts[i])
+        .approve(apeBlendr.getAddress(), ethers.MaxUint256);
+
+      await apeBlendr
+        .connect(accounts[i])
+        .enterApeBlendr("10000000000000000000000");
+    }
+
+    await time.increase(2 * 3600);
+
+    await expect(
+      apeBlendr.connect(accounts[11]).startApeCoinAwardingProcess()
+    ).to.be.emit(apeBlendr, "AwardingStarted");
+  });
+
+  it("should be able to finish awarding process and and award 1 winner", async () => {
+    const { apeCoin, apeBlendr, mockVRFCoordinator } = await loadFixture(
+      deployedContracts
+    );
+    const accounts = await ethers.getSigners();
+
+    for (let i = 0; i < 10; i++) {
+      await apeCoin
+        .connect(accounts[i])
+        .mint(accounts[i].getAddress(), "100000000000000000000000");
+      await apeCoin
+        .connect(accounts[i])
+        .approve(apeBlendr.getAddress(), ethers.MaxUint256);
+
+      await apeBlendr
+        .connect(accounts[i])
+        .enterApeBlendr("10000000000000000000000");
+    }
+
+    await time.increase(2 * 3600);
+
+    await expect(
+      apeBlendr.connect(accounts[11]).startApeCoinAwardingProcess()
+    ).to.be.emit(apeBlendr, "AwardingStarted");
+
+    await mockVRFCoordinator
+      .connect(accounts[11])
+      .triggerRawFulfillRandomWords();
+  });
+}).timeout(72000);
