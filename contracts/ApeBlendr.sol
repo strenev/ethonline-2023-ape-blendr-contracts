@@ -29,7 +29,7 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
     uint256 public epochStartedAt;
     uint256 public totalPrizeDraws;
 
-    bool public awardInProgress;
+    bool public awardingInProgress;
 
     mapping(uint256 => ApeDraw) public apeDraws;
 
@@ -99,7 +99,7 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
     }
 
     function _checkAwardingInProgress() internal view {
-        if (awardInProgress) revert AwardingInProgress();
+        if (awardingInProgress) revert AwardingInProgress();
     }
 
     function _drawWinner(uint256 randomWord) internal view returns (address winner) {
@@ -131,18 +131,21 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
     }
 
     function _finalizeEpoch() internal {
-        awardInProgress = false;
+        awardingInProgress = false;
         epochStartedAt = _calculateNextEpochStartTime(getCurrentTime());
 
         emit EpochEnded(epochStartedAt);
     }
 
     function enterApeBlendr(uint256 amount) external {
+        _checkEpochHasNotEnded();
         _checkAwardingInProgress();
+
         _mint(msg.sender, amount);
 
         IERC20(apeCoin).transferFrom(msg.sender, address(this), amount);
         IERC20(apeCoin).approve(apeCoinStaking, amount);
+
         IApeCoinStaking(apeCoinStaking).depositSelfApeCoin(amount);
 
         emit ApeBlendrEntered(msg.sender, amount);
@@ -150,6 +153,7 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
 
     function exitApeBlendr(uint256 amount) external {
         _checkAwardingInProgress();
+
         _burn(msg.sender, amount);
 
         IApeCoinStaking(apeCoinStaking).withdrawApeCoin(amount, msg.sender);
@@ -161,7 +165,7 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
         _checkEpochHasEnded();
         _checkAwardingInProgress();
 
-        awardInProgress = true;
+        awardingInProgress = true;
 
         IApeCoinStaking.DashboardStake memory apeStakeInfo = getApeCoinStake();
 
@@ -169,6 +173,7 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
         uint256 totalApeCoinBalance = apeStakeInfo.deposited + apeStakeInfo.unclaimed;
 
         uint256 awardForCurrentDraw = totalApeCoinBalance > totalSupply ? (totalApeCoinBalance - totalSupply) : 0;
+
         if (awardForCurrentDraw > 0) {
             uint256 requestId = requestRandomWords();
 
@@ -191,7 +196,6 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
                 IERC20(apeCoin).approve(apeCoinStaking, 1 * (APE_COIN_PRECISION));
                 IApeCoinStaking(apeCoinStaking).depositSelfApeCoin(1 * (APE_COIN_PRECISION));
             }
-
             emit AwardingStarted(requestId, awardForCurrentDraw);
         } else {
             _finalizeEpoch();
@@ -209,6 +213,8 @@ contract ApeBlendr is ERC20, VRFv2Consumer, Ownable {
     }
 
     function _update(address from, address to, uint256 amount) internal virtual override {
+        if (from == to) revert UnauthorizedTransfer();
+
         if (from != address(0)) {
             uint256 fromBalance = balanceOf(from) - amount;
             sortitionSumTrees.set(TREE_KEY, fromBalance, bytes32(uint256(uint160(from))));
