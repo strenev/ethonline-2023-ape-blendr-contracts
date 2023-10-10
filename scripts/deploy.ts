@@ -1,21 +1,24 @@
 import { ethers } from "hardhat";
 
 async function main() {
-  const currentTimestampInSeconds = Math.round(Date.now() / 1000);
-  const unlockTime = currentTimestampInSeconds + 60;
+  const apeBlendr = await ethers.deployContract("ApeBlendr", [
+    process.env.APE_COIN_ADDRESS,
+    process.env.APE_COIN_STAKING_ADDRESS,
+    process.env.APE_BLENDR_FEE_BPS,
+    process.env.EPOCH_SECONDS,
+    process.env.EPOCH_STARTED_AT,
+    process.env.SUBSCRIPTION_ID,
+    process.env.KEY_HASH,
+    process.env.CALLBACK_GAS_LIMIT,
+    process.env.VRF_REQUEST_CONFIRMATIONS,
+    process.env.NUM_WORDS,
+    process.env.VRF_COORDINATOR,
+  ]);
 
-  const lockedAmount = ethers.parseEther("0.001");
-
-  const lock = await ethers.deployContract("Lock", [unlockTime], {
-    value: lockedAmount,
-  });
-
-  await lock.waitForDeployment();
+  await apeBlendr.waitForDeployment();
 
   console.log(
-    `Lock with ${ethers.formatEther(
-      lockedAmount
-    )}ETH and unlock timestamp ${unlockTime} deployed to ${lock.target}`
+    `ApeBlendr deployed to: https://goerli.etherscan.io/address/${await apeBlendr.getAddress()}`
   );
 }
 
